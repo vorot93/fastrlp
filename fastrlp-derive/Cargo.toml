@@ -1,0 +1,16 @@
+[package]
+name = "fastrlp-derive"
+version = "0.1.4"
+edition = "2021"
+license = "MPL-2.0"
+description = "Procedural macros for fastrlp"
+repository = "https://github.com/vorot93/fastrlp"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+bytes = { version = "1", default-features = false }
+syn = "1"
+quote = "1"
+proc-macro2 = "1"
