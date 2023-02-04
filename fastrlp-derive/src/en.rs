@@ -44,7 +44,7 @@ pub fn impl_encodable(ast: &syn::DeriveInput) -> TokenStream {
                 return fastrlp::length_of_length(rlp_head.payload_length) + rlp_head.payload_length;
             }
             fn encode(&self, out: &mut dyn fastrlp::BufMut) {
-                E::rlp_header(self).encode(out);
+                fastrlp::Header::encode(&E::rlp_header(self), out);
                 #(#stmts)*
             }
         }
@@ -84,7 +84,7 @@ pub fn impl_encodable_wrapper(ast: &syn::DeriveInput) -> TokenStream {
                 self.#ident.length()
             }
             fn encode(&self, out: &mut dyn fastrlp::BufMut) {
-                self.#ident.encode(out)
+                fastrlp::Encodable::encode(&self.#ident, out)
             }
         }
     };
