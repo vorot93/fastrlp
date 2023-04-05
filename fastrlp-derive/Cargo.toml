@@ -11,6 +11,6 @@ proc-macro = true
 
 [dependencies]
 bytes = { version = "1", default-features = false }
-syn = "1"
+syn = "2"
 quote = "1"
 proc-macro2 = "1"
