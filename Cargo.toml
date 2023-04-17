@@ -12,7 +12,7 @@ auto_impl = "1"
 bytes = { version = "1", default-features = false }
 ethnum = { version = "1", default-features = false, optional = true }
 ethereum-types = { version = "0.14", default-features = false, optional = true }
-fastrlp-derive = { version = "0.1", path = "fastrlp-derive", optional = true }
+fastrlp-derive = { version = "0.1", path = "derive", optional = true }
 
 [dev-dependencies]
 fastrlp-test = { path = ".", package = "fastrlp", features = [
@@ -36,4 +36,4 @@ name = "bench"
 harness = false
 
 [workspace]
-members = ["fastrlp-derive"]
+members = ["derive"]
