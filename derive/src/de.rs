@@ -6,7 +6,7 @@ pub fn impl_decodable(ast: &syn::DeriveInput) -> TokenStream {
     let body = if let syn::Data::Struct(s) = &ast.data {
         s
     } else {
-        panic!("#[derive(RlpDecodable)] is only defined for structs.");
+        panic!("#[derive(Decodable)] is only defined for structs.");
     };
 
     let stmts: Vec<_> = body
@@ -60,13 +60,13 @@ pub fn impl_decodable_wrapper(ast: &syn::DeriveInput) -> TokenStream {
     let body = if let syn::Data::Struct(s) = &ast.data {
         s
     } else {
-        panic!("#[derive(RlpEncodableWrapper)] is only defined for structs.");
+        panic!("#[derive(EncodableWrapper)] is only defined for structs.");
     };
 
     assert_eq!(
         body.fields.iter().count(),
         1,
-        "#[derive(RlpEncodableWrapper)] is only defined for structs with one field."
+        "#[derive(EncodableWrapper)] is only defined for structs with one field."
     );
 
     let name = &ast.ident;

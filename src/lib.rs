@@ -18,6 +18,4 @@ pub use encode::{
 pub use types::*;
 
 #[cfg(feature = "derive")]
-pub use fastrlp_derive::{
-    RlpDecodable, RlpDecodableWrapper, RlpEncodable, RlpEncodableWrapper, RlpMaxEncodedLen,
-};
+pub use fastrlp_derive::{Decodable, DecodableWrapper, Encodable, EncodableWrapper, MaxEncodedLen};

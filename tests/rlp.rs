@@ -4,12 +4,12 @@ use ethnum::U256;
 use fastrlp::*;
 use hex_literal::hex;
 
-#[derive(Debug, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, PartialEq, Encodable, Decodable)]
 struct Item {
     a: Bytes,
 }
 
-#[derive(Debug, PartialEq, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]
+#[derive(Debug, PartialEq, Encodable, Decodable, MaxEncodedLen)]
 struct Test4Numbers {
     a: u8,
     b: u64,
@@ -17,10 +17,10 @@ struct Test4Numbers {
     d: U256,
 }
 
-#[derive(Debug, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
+#[derive(Debug, PartialEq, EncodableWrapper, DecodableWrapper)]
 pub struct W(Test4Numbers);
 
-#[derive(Debug, PartialEq, RlpEncodable)]
+#[derive(Debug, PartialEq, Encodable)]
 struct Test4NumbersGenerics<'a, D: Encodable> {
     a: u8,
     b: u64,
