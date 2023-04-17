@@ -2,7 +2,7 @@ use crate::types::*;
 use arrayvec::ArrayVec;
 use auto_impl::auto_impl;
 use bytes::{BufMut, Bytes, BytesMut};
-use core::{borrow::Borrow, mem::size_of};
+use core::{any::Any, borrow::Borrow, mem::size_of};
 
 pub fn zeroless_view(v: &impl AsRef<[u8]>) -> &[u8] {
     let v = v.as_ref();
@@ -95,13 +95,24 @@ impl<'a> Encodable for &'a [u8] {
     }
 }
 
-impl<const LEN: usize> Encodable for [u8; LEN] {
+impl<T, const LEN: usize> Encodable for [T; LEN]
+where
+    T: Encodable + 'static,
+{
     fn length(&self) -> usize {
-        (self as &[u8]).length()
+        if let Some(s) = <dyn Any>::downcast_ref::<[u8; LEN]>(self) {
+            (s as &[u8]).length()
+        } else {
+            list_length(self)
+        }
     }
 
     fn encode(&self, out: &mut dyn BufMut) {
-        (self as &[u8]).encode(out)
+        if let Some(s) = <dyn Any>::downcast_ref::<[u8; LEN]>(self) {
+            (s as &[u8]).encode(out)
+        } else {
+            encode_list(self, out)
+        }
     }
 }
 
@@ -264,14 +275,22 @@ mod alloc_support {
 
     impl<T> Encodable for ::alloc::vec::Vec<T>
     where
-        T: Encodable,
+        T: Encodable + 'static,
     {
         fn length(&self) -> usize {
-            list_length(self)
+            if let Some(s) = <dyn Any>::downcast_ref::<::alloc::vec::Vec<u8>>(self) {
+                (s as &[u8]).length()
+            } else {
+                list_length(self)
+            }
         }
 
         fn encode(&self, out: &mut dyn BufMut) {
-            encode_list(self, out)
+            if let Some(s) = <dyn Any>::downcast_ref::<::alloc::vec::Vec<u8>>(self) {
+                (s as &[u8]).encode(out)
+            } else {
+                encode_list(self, out)
+            }
         }
     }
 
@@ -287,14 +306,22 @@ mod alloc_support {
 
 impl<T, const LEN: usize> Encodable for ArrayVec<T, LEN>
 where
-    T: Encodable,
+    T: Encodable + 'static,
 {
     fn length(&self) -> usize {
-        list_length(self)
+        if let Some(s) = <dyn Any>::downcast_ref::<ArrayVec<u8, LEN>>(self) {
+            (s as &[u8]).length()
+        } else {
+            list_length(self)
+        }
     }
 
     fn encode(&self, out: &mut dyn BufMut) {
-        encode_list(self, out)
+        if let Some(s) = <dyn Any>::downcast_ref::<ArrayVec<u8, LEN>>(self) {
+            (s as &[u8]).encode(out)
+        } else {
+            encode_list(self, out)
+        }
     }
 }
 slice_impl!(Bytes);
@@ -364,7 +391,7 @@ mod tests {
         out
     }
 
-    fn encoded_list<T: Encodable + Clone>(t: &[T]) -> BytesMut {
+    fn encoded_list<T: Encodable + Clone + 'static>(t: &[T]) -> BytesMut {
         let mut out1 = BytesMut::new();
         encode_list(t, &mut out1);
 
@@ -529,5 +556,26 @@ mod tests {
             encoded_list(&[0xFFCCB5_u64, 0xFFC0B5_u64]),
             &hex!("c883ffccb583ffc0b5")[..]
         );
+    }
+
+    #[test]
+    fn vec_specialization() {
+        const SPECIALIZED: [u8; 2] = [0x42_u8, 0x43_u8];
+        const GENERAL: [u64; 2] = [0xFFCCB5_u64, 0xFFC0B5_u64];
+
+        const SPECIALIZED_EXP: &[u8] = &hex!("824243");
+        const GENERAL_EXP: &[u8] = &hex!("C883FFCCB583FFC0B5");
+
+        assert_eq!(&*encoded(SPECIALIZED), SPECIALIZED_EXP);
+        assert_eq!(&*encoded(GENERAL), GENERAL_EXP);
+
+        assert_eq!(&*encoded(ArrayVec::from(SPECIALIZED)), SPECIALIZED_EXP);
+        assert_eq!(&*encoded(ArrayVec::from(GENERAL)), GENERAL_EXP);
+
+        #[cfg(feature = "alloc")]
+        {
+            assert_eq!(&*encoded(SPECIALIZED.to_vec()), SPECIALIZED_EXP);
+            assert_eq!(&*encoded(GENERAL.to_vec()), GENERAL_EXP);
+        }
     }
 }

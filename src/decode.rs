@@ -1,6 +1,7 @@
 use crate::types::Header;
 use arrayvec::ArrayVec;
 use bytes::{Buf, Bytes, BytesMut};
+use core::any::Any;
 
 pub trait Decodable: Sized {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError>;
@@ -39,6 +40,38 @@ mod alloc_impl {
             from.advance(h.payload_length);
 
             Self::from_utf8(to).map_err(|_| DecodeError::Custom("invalid string"))
+        }
+    }
+
+    impl<T> Decodable for ::alloc::vec::Vec<T>
+    where
+        T: Decodable + 'static,
+    {
+        fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+            let h = Header::decode(buf)?;
+
+            let mut to = ::alloc::vec::Vec::new();
+            if let Some(to) = <dyn Any>::downcast_mut::<::alloc::vec::Vec<u8>>(&mut to) {
+                if h.list {
+                    return Err(DecodeError::UnexpectedList);
+                }
+                to.extend_from_slice(&buf[..h.payload_length]);
+                buf.advance(h.payload_length);
+            } else {
+                if !h.list {
+                    return Err(DecodeError::UnexpectedString);
+                }
+
+                let payload_view = &mut &buf[..h.payload_length];
+
+                while !payload_view.is_empty() {
+                    to.push(T::decode(payload_view)?);
+                }
+
+                buf.advance(h.payload_length);
+            }
+
+            Ok(to)
         }
     }
 }
@@ -283,21 +316,17 @@ mod ethereum_types_support {
     fixed_uint_impl!(U512, 64);
 }
 
-impl<const N: usize> Decodable for [u8; N] {
-    fn decode(from: &mut &[u8]) -> Result<Self, DecodeError> {
-        let h = Header::decode(from)?;
-        if h.list {
-            return Err(DecodeError::UnexpectedList);
-        }
-        if h.payload_length != N {
-            return Err(DecodeError::UnexpectedLength);
-        }
-
-        let mut to = [0_u8; N];
-        to.copy_from_slice(&from[..N]);
-        from.advance(N);
-
-        Ok(to)
+impl<T, const LEN: usize> Decodable for [T; LEN]
+where
+    T: Decodable + 'static,
+{
+    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        ArrayVec::<T, LEN>::decode(buf)?
+            .into_inner()
+            .map_err(|arr| DecodeError::ListLengthMismatch {
+                expected: LEN,
+                got: arr.len(),
+            })
     }
 }
 
@@ -345,51 +374,44 @@ impl<'a> Rlp<'a> {
     }
 }
 
-#[cfg(feature = "alloc")]
-impl<E> Decodable for alloc::vec::Vec<E>
+impl<T, const LEN: usize> Decodable for ArrayVec<T, LEN>
 where
-    E: Decodable,
+    T: Decodable + 'static,
 {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        let h = Header::decode(buf)?;
-        if !h.list {
-            return Err(DecodeError::UnexpectedString);
+        let mut arr: ArrayVec<T, LEN> = ArrayVec::new();
+        if let Some(s) = <dyn Any>::downcast_mut::<ArrayVec<u8, LEN>>(&mut arr) {
+            let h = Header::decode(buf)?;
+            if h.list {
+                return Err(DecodeError::UnexpectedList);
+            }
+            if h.payload_length != LEN {
+                return Err(DecodeError::UnexpectedLength);
+            }
+
+            s.try_extend_from_slice(&buf[..LEN]).unwrap();
+            buf.advance(LEN);
+        } else {
+            let h = Header::decode(buf)?;
+            if !h.list {
+                return Err(DecodeError::UnexpectedString);
+            }
+
+            let payload_view = &mut &buf[..h.payload_length];
+
+            while !payload_view.is_empty() {
+                if arr.try_push(T::decode(payload_view)?).is_err() {
+                    return Err(DecodeError::ListLengthMismatch {
+                        expected: LEN,
+                        got: LEN + 1,
+                    });
+                }
+            }
+
+            buf.advance(h.payload_length);
         }
 
-        let payload_view = &mut &buf[..h.payload_length];
-
-        let mut to = alloc::vec::Vec::new();
-        while !payload_view.is_empty() {
-            to.push(E::decode(payload_view)?);
-        }
-
-        buf.advance(h.payload_length);
-
-        Ok(to)
-    }
-}
-
-impl<E, const LEN: usize> Decodable for ArrayVec<E, LEN>
-where
-    E: Decodable,
-{
-    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        let h = Header::decode(buf)?;
-        if !h.list {
-            return Err(DecodeError::UnexpectedString);
-        }
-
-        let payload_view = &mut &buf[..h.payload_length];
-
-        let mut to = ArrayVec::new();
-        while !payload_view.is_empty() {
-            to.try_push(E::decode(payload_view)?)
-                .map_err(|_| DecodeError::Custom("arrayvec full"))?;
-        }
-
-        buf.advance(h.payload_length);
-
-        Ok(to)
+        Ok(arr)
     }
 }
 
@@ -419,7 +441,7 @@ mod tests {
 
     fn check_decode_list<T, IT>(fixtures: IT)
     where
-        T: Decodable + PartialEq + Debug,
+        T: Decodable + PartialEq + Debug + 'static,
         IT: IntoIterator<Item = (Result<alloc::vec::Vec<T>, DecodeError>, &'static [u8])>,
     {
         for (expected, mut input) in fixtures {
@@ -639,5 +661,26 @@ mod tests {
                 &hex!("C883BBCCB583FFC0B5")[..],
             ),
         ])
+    }
+
+    #[test]
+    fn vec_specialization() {
+        const SPECIALIZED: [u8; 2] = [0x42_u8, 0x43_u8];
+        const GENERAL: [u64; 2] = [0xFFCCB5_u64, 0xFFC0B5_u64];
+
+        const SPECIALIZED_EXP: &[u8] = &hex!("824243");
+        const GENERAL_EXP: &[u8] = &hex!("C883FFCCB583FFC0B5");
+
+        check_decode([(Ok(SPECIALIZED), SPECIALIZED_EXP)]);
+        check_decode([(Ok(GENERAL), GENERAL_EXP)]);
+
+        check_decode([(Ok(ArrayVec::from(SPECIALIZED)), SPECIALIZED_EXP)]);
+        check_decode([(Ok(ArrayVec::from(GENERAL)), GENERAL_EXP)]);
+
+        #[cfg(feature = "alloc")]
+        {
+            check_decode([(Ok(SPECIALIZED.to_vec()), SPECIALIZED_EXP)]);
+            check_decode([(Ok(GENERAL.to_vec()), GENERAL_EXP)]);
+        }
     }
 }
