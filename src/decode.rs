@@ -1,7 +1,7 @@
 use crate::types::Header;
 use arrayvec::ArrayVec;
 use bytes::{Buf, Bytes, BytesMut};
-use core::any::Any;
+use core::{any::Any, num::NonZeroUsize};
 
 pub trait Decodable: Sized {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError>;
@@ -80,7 +80,7 @@ mod alloc_impl {
 pub enum DecodeError {
     Overflow,
     LeadingZero,
-    InputTooShort,
+    InputTooShort { needed: Option<NonZeroUsize> },
     NonCanonicalSingleByte,
     NonCanonicalSize,
     UnexpectedLength,
@@ -98,7 +98,14 @@ impl core::fmt::Display for DecodeError {
         match self {
             DecodeError::Overflow => write!(f, "overflow"),
             DecodeError::LeadingZero => write!(f, "leading zero"),
-            DecodeError::InputTooShort => write!(f, "input too short"),
+            DecodeError::InputTooShort { needed } => {
+                write!(f, "input too short")?;
+                if let Some(needed) = needed {
+                    write!(f, ": need {needed} more bytes")?;
+                }
+
+                Ok(())
+            }
             DecodeError::NonCanonicalSingleByte => write!(f, "non-canonical single byte"),
             DecodeError::NonCanonicalSize => write!(f, "non-canonical size"),
             DecodeError::UnexpectedLength => write!(f, "unexpected length"),
@@ -115,7 +122,7 @@ impl core::fmt::Display for DecodeError {
 impl Header {
     pub fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
         if !buf.has_remaining() {
-            return Err(DecodeError::InputTooShort);
+            return Err(DecodeError::InputTooShort { needed: None });
         }
 
         let b = buf[0];
@@ -134,7 +141,7 @@ impl Header {
 
                 if h.payload_length == 1 {
                     if !buf.has_remaining() {
-                        return Err(DecodeError::InputTooShort);
+                        return Err(DecodeError::InputTooShort { needed: None });
                     }
                     if buf[0] < 0x80 {
                         return Err(DecodeError::NonCanonicalSingleByte);
@@ -145,8 +152,13 @@ impl Header {
             } else if b < 0xC0 {
                 buf.advance(1);
                 let len_of_len = b as usize - 0xB7;
-                if buf.len() < len_of_len {
-                    return Err(DecodeError::InputTooShort);
+                if let Some(needed) = len_of_len
+                    .checked_sub(buf.len())
+                    .and_then(NonZeroUsize::new)
+                {
+                    return Err(DecodeError::InputTooShort {
+                        needed: Some(needed),
+                    });
                 }
                 let payload_length = usize::try_from(u64::from_be_bytes(
                     static_left_pad(&buf[..len_of_len]).ok_or(DecodeError::LeadingZero)?,
@@ -171,8 +183,13 @@ impl Header {
                 buf.advance(1);
                 let list = true;
                 let len_of_len = b as usize - 0xF7;
-                if buf.len() < len_of_len {
-                    return Err(DecodeError::InputTooShort);
+                if let Some(needed) = len_of_len
+                    .checked_sub(buf.len())
+                    .and_then(NonZeroUsize::new)
+                {
+                    return Err(DecodeError::InputTooShort {
+                        needed: Some(needed),
+                    });
                 }
                 let payload_length = usize::try_from(u64::from_be_bytes(
                     static_left_pad(&buf[..len_of_len]).ok_or(DecodeError::LeadingZero)?,
@@ -190,8 +207,14 @@ impl Header {
             }
         };
 
-        if buf.remaining() < h.payload_length {
-            return Err(DecodeError::InputTooShort);
+        if let Some(needed) = h
+            .payload_length
+            .checked_sub(buf.remaining())
+            .and_then(NonZeroUsize::new)
+        {
+            return Err(DecodeError::InputTooShort {
+                needed: Some(needed),
+            });
         }
 
         Ok(h)
@@ -228,8 +251,14 @@ macro_rules! decode_integer {
                 if h.payload_length > (<$t>::BITS as usize / 8) {
                     return Err(DecodeError::Overflow);
                 }
-                if buf.remaining() < h.payload_length {
-                    return Err(DecodeError::InputTooShort);
+                if let Some(needed) = h
+                    .payload_length
+                    .checked_sub(buf.remaining())
+                    .and_then(NonZeroUsize::new)
+                {
+                    return Err(DecodeError::InputTooShort {
+                        needed: Some(needed),
+                    });
                 }
                 let v = <$t>::from_be_bytes(
                     static_left_pad(&buf[..h.payload_length]).ok_or(DecodeError::LeadingZero)?,
@@ -296,8 +325,14 @@ mod ethereum_types_support {
                     if h.payload_length > $n_bytes {
                         return Err(DecodeError::Overflow);
                     }
-                    if buf.remaining() < h.payload_length {
-                        return Err(DecodeError::InputTooShort);
+                    if let Some(needed) = h
+                        .payload_length
+                        .checked_sub(buf.remaining())
+                        .and_then(NonZeroUsize::new)
+                    {
+                        return Err(DecodeError::InputTooShort {
+                            needed: Some(needed),
+                        });
                     }
                     let n = <$t>::from_big_endian(
                         &static_left_pad::<$n_bytes>(&buf[..h.payload_length])
@@ -494,7 +529,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort {
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),
@@ -521,7 +558,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort {
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),
@@ -549,7 +588,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort {
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),
@@ -577,7 +618,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort {
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),
@@ -605,7 +648,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort {
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),
@@ -633,7 +678,9 @@ mod tests {
                 &hex!("8AFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (
-                Err(DecodeError::InputTooShort),
+                Err(DecodeError::InputTooShort{
+                    needed: Some(NonZeroUsize::new(1).unwrap()),
+                }),
                 &hex!("8BFFFFFFFFFFFFFFFFFF7C")[..],
             ),
             (Err(DecodeError::UnexpectedList), &hex!("C0")[..]),

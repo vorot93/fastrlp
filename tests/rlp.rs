@@ -3,6 +3,7 @@ use bytes::{Bytes, BytesMut};
 use ethnum::U256;
 use fastrlp::*;
 use hex_literal::hex;
+use std::num::NonZeroUsize;
 
 #[derive(Debug, PartialEq, Encodable, Decodable)]
 struct Item {
@@ -96,7 +97,9 @@ fn invalid_decode_sideeffect() {
 
     assert_eq!(
         Test4Numbers::decode(&mut sl),
-        Err(DecodeError::InputTooShort)
+        Err(DecodeError::InputTooShort {
+            needed: Some(NonZeroUsize::new(1).unwrap())
+        })
     );
 
     assert_eq!(sl.len(), fixture.len());
