@@ -4,9 +4,19 @@ use auto_impl::auto_impl;
 use bytes::{BufMut, Bytes, BytesMut};
 use core::{any::Any, borrow::Borrow, mem::size_of};
 
+/// Trims leading zeros from a byte slice.
 pub fn zeroless_view(v: &impl AsRef<[u8]>) -> &[u8] {
     let v = v.as_ref();
-    &v[v.iter().take_while(|&&b| b == 0).count()..]
+    let skip = v.iter().take_while(|&&b| b == 0).count();
+    // SAFETY: `skip` is always in bounds
+    unsafe { v.get_unchecked(skip..) }
+}
+
+macro_rules! to_be_bytes_trimmed {
+    ($be:ident, $x:expr) => {{
+        $be = $x.to_be_bytes();
+        &$be[($x.leading_zeros() / 8) as usize..]
+    }};
 }
 
 impl Header {
@@ -19,8 +29,8 @@ impl Header {
             };
             out.put_u8(code + self.payload_length as u8);
         } else {
-            let len_be = self.payload_length.to_be_bytes();
-            let len_be = zeroless_view(&len_be);
+            let len_be;
+            let len_be = to_be_bytes_trimmed!(len_be, self.payload_length);
             let code = if self.list { 0xF7 } else { 0xB7 };
             out.put_u8(code + len_be.len() as u8);
             out.put_slice(len_be);
@@ -138,8 +148,8 @@ macro_rules! encodable_uint {
                 } else if *self < <$t>::from(EMPTY_STRING_CODE) {
                     out.put_u8(u8::try_from(*self).unwrap());
                 } else {
-                    let be = self.to_be_bytes();
-                    let be = zeroless_view(&be);
+                    let be;
+                    let be = to_be_bytes_trimmed!(be, *self);
                     out.put_u8(EMPTY_STRING_CODE + be.len() as u8);
                     out.put_slice(be);
                 }
@@ -576,6 +586,47 @@ mod tests {
         {
             assert_eq!(&*encoded(SPECIALIZED.to_vec()), SPECIALIZED_EXP);
             assert_eq!(&*encoded(GENERAL.to_vec()), GENERAL_EXP);
+        }
+    }
+
+    #[test]
+    fn to_be_bytes_trimmed() {
+        macro_rules! test_to_be_bytes_trimmed {
+            ($($x:expr => $expected:expr),+ $(,)?) => {$(
+                let be;
+                let slice = to_be_bytes_trimmed!(be, $x);
+                assert_eq!(slice, zeroless_view(&be));
+                assert_eq!(slice, $expected);
+            )+};
+        }
+
+        test_to_be_bytes_trimmed! {
+            0u8 => [],
+            0u16 => [],
+            0u32 => [],
+            0u64 => [],
+            0usize => [],
+            0u128 => [],
+
+            1u8 => [1],
+            1u16 => [1],
+            1u32 => [1],
+            1u64 => [1],
+            1usize => [1],
+            1u128 => [1],
+
+            u8::MAX => [0xff],
+            u16::MAX => [0xff, 0xff],
+            u32::MAX => [0xff, 0xff, 0xff, 0xff],
+            u64::MAX => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            u128::MAX => [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+
+            1u8 => [1],
+            255u8 => [255],
+            256u16 => [1, 0],
+            65535u16 => [255, 255],
+            65536u32 => [1, 0, 0],
+            65536u64 => [1, 0, 0],
         }
     }
 }
