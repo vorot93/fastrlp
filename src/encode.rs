@@ -247,8 +247,7 @@ mod ethereum_types_support {
                 }
 
                 fn encode(&self, out: &mut dyn bytes::BufMut) {
-                    let mut temp_arr = [0u8; $n_bytes];
-                    self.to_big_endian(&mut temp_arr[..]);
+                    let temp_arr = self.to_big_endian();
                     // cut the leading zeros after converting to big endian
                     let sliced = &temp_arr[(self.leading_zeros() / 8) as usize..];
                     sliced.encode(out);
