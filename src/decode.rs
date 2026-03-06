@@ -457,7 +457,7 @@ mod tests {
     use super::*;
     use alloc::vec;
     use core::fmt::Debug;
-    use ethereum_types::{U128, U256, U512, U64};
+    use ethereum_types::{U64, U128, U256, U512};
     use ethnum::AsU256;
     use hex_literal::hex;
 

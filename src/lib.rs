@@ -12,8 +12,8 @@ pub use bytes::BufMut;
 
 pub use decode::{Decodable, DecodeError, Rlp};
 pub use encode::{
-    const_add, encode_fixed_size, encode_list, length_of_length, list_length, zeroless_view,
-    Encodable, MaxEncodedLen, MaxEncodedLenAssoc,
+    Encodable, MaxEncodedLen, MaxEncodedLenAssoc, const_add, encode_fixed_size, encode_list,
+    length_of_length, list_length, zeroless_view,
 };
 pub use types::*;
 

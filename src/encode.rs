@@ -84,7 +84,7 @@ pub trait Encodable {
     }
 }
 
-impl<'a> Encodable for &'a [u8] {
+impl Encodable for &[u8] {
     fn length(&self) -> usize {
         let mut len = self.len();
         if self.len() != 1 || self[0] >= EMPTY_STRING_CODE {

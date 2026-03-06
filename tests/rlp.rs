@@ -92,7 +92,9 @@ fn test_encode_item() {
 
 #[test]
 fn invalid_decode_sideeffect() {
-    let fixture = hex!("f84d0588deadbeefbaadcafea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+    let fixture = hex!(
+        "f84d0588deadbeefbaadcafea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    );
     let mut sl: &[u8] = &fixture;
 
     assert_eq!(
@@ -125,7 +127,9 @@ fn struct_equivalence() {
         zeroless_view(&d.to_be_bytes()).to_vec().into(),
     ];
 
-    let enc: &[u8] = &hex!("f84b0587adbeefbaadcafea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+    let enc: &[u8] = &hex!(
+        "f84b0587adbeefbaadcafea056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    );
 
     assert_eq!(encoded(&item), enc);
     assert_eq!(encoded(&vec), enc);
